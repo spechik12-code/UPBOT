@@ -15,7 +15,6 @@ load_dotenv()
 
 SITE_URL = os.getenv('SITE_URL', 'https://43xgeorgia.me/ru')
 
-# Автоматически все аккаунты из .env
 accounts = []
 i = 1
 while True:
@@ -28,10 +27,10 @@ while True:
         break
 
 if not accounts:
-    print("ОШИБКА: Нет аккаунтов в .env!")
+    print("ОШИБКА: Нет аккаунтов!")
     exit()
 
-print(f"Загружено {len(accounts)} аккаунтов. Бот готов к работе на сервере.")
+print(f"Загружено {len(accounts)} аккаунтов. Финальная версия для сервера.")
 
 TBILISI_TZ = ZoneInfo('Asia/Tbilisi')
 
@@ -51,9 +50,17 @@ def get_driver():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
+    options.add_argument('--disable-infobars')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--disable-background-timer-throttling')
+    options.add_argument('--disable-renderer-backgrounding')
+    options.add_argument('--disable-backgrounding-occluded-windows')
+    options.add_argument('--disable-features=TranslateUI')
+    options.add_argument('--disable-ipc-flooding-protection')
     options.add_argument('--window-size=1920,1080')
+    options.add_argument('--remote-debugging-port=9222')
 
-    # Фикс для Ubuntu — путь к chromium
+    # Путь к chromium
     options.binary_location = "/usr/bin/chromium-browser"
 
     driver = uc.Chrome(
@@ -101,20 +108,20 @@ def process_account(driver, acc):
             print("Кнопка входа нажата")
             time.sleep(12 + random.uniform(0, 5))
         except TimeoutException:
-            print("Уже залогинен — пропускаем логин")
+            print("Уже залогинен — пропускаем")
 
-        # UP — прямой переход по href (обходит защиту на клик)
+        # UP — прямой переход по href
         try:
             up_link = WebDriverWait(driver, 25).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a.k-up.send"))
             )
             up_url = up_link.get_attribute("href")
-            print(f"Переходим по UP: {up_url}")
+            print(f"UP по ссылке: {up_url}")
             driver.get(up_url)
-            print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] UP УСПЕШНО ВЫПОЛНЕН: {acc['login']} 🎉")
+            print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] UP УСПЕШНО: {acc['login']} 🎉")
             time.sleep(8 + random.uniform(0, 4))
         except TimeoutException:
-            print("Ссылка UP не найдена — возможно, уже апнуто")
+            print("UP ссылка не найдена — возможно, уже апнуто")
 
         # Логаут
         try:
@@ -125,7 +132,7 @@ def process_account(driver, acc):
             print("Логаут выполнен")
             time.sleep(5)
         except TimeoutException:
-            print("LogOut не найден — следующий цикл будет чистым")
+            print("LogOut не найден")
 
     except Exception as e:
         print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] ОШИБКА у {acc['login']}: {str(e)}")
@@ -155,7 +162,7 @@ run_cycle()
 
 schedule.every(10).minutes.do(run_cycle)
 
-print("БОТ ЗАПУЩЕН НА СЕРВЕРЕ! Обновление через git pull.")
+print("БОТ ЗАПУЩЕН НА СЕРВЕРЕ! Финальная версия.")
 while True:
     schedule.run_pending()
     time.sleep(1)
