@@ -15,7 +15,6 @@ load_dotenv()
 
 SITE_URL = os.getenv('SITE_URL', 'https://43xgeorgia.me/ru')
 
-# Автоматически все аккаунты из .env
 accounts = []
 i = 1
 while True:
@@ -28,17 +27,17 @@ while True:
         break
 
 if not accounts:
-    print("ОШИБКА: Нет аккаунтов в .env!")
+    print("ОШИБКА: Нет аккаунтов!")
     exit()
 
-print(f"Загружено {len(accounts)} аккаунтов. Бот готов к работе на сервере.")
+print(f"Загружено {len(accounts)} аккаунтов. UP — с увеличенным таймаутом и несколькими селекторами.")
 
 TBILISI_TZ = ZoneInfo('Asia/Tbilisi')
 
 def is_working_time():
     now = datetime.now(TBILISI_TZ)
-    start = dtime(15, 0)  # 15:00
-    end = dtime(3, 30)    # 03:30
+    start = dtime(15, 0)
+    end = dtime(3, 30)
     if start <= end:
         return start <= now.time() <= end
     else:
@@ -46,23 +45,16 @@ def is_working_time():
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')
+    options.add_argument('--headless=new')  # Закомментировано — браузер видим
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
-    options.add_argument('--disable-infobars')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--disable-background-timer-throttling')
-    options.add_argument('--disable-renderer-backgrounding')
-    options.add_argument('--disable-backgrounding-occluded-windows')
     options.add_argument('--window-size=1920,1080')
-    options.add_argument('--shm-size=1gb')
-
-    options.binary_location = "/usr/bin/chromium-browser"
 
     driver = uc.Chrome(
         options=options,
+        version_main=143,
         use_subprocess=True
     )
     return driver
@@ -104,22 +96,47 @@ def process_account(driver, acc):
             login_btn = driver.find_element(By.XPATH, "//input[@type='submit' or @value='შესვლა' or @id='wp-submit']")
             driver.execute_script("arguments[0].click();", login_btn)
             print("Кнопка входа нажата")
-            time.sleep(12 + random.uniform(0, 5))
+            time.sleep(15 + random.uniform(0, 5))  # Больше времени на загрузку кабинета
         except TimeoutException:
             print("Уже залогинен — пропускаем логин")
 
-        # UP — прямой переход по href
+        # UP — несколько селекторов + большой таймаут
+        up_success = False
         try:
-            up_link = WebDriverWait(driver, 25).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a.k-up.send"))
-            )
-            up_url = up_link.get_attribute("href")
-            print(f"Переходим по UP: {up_url}")
-            driver.get(up_url)
-            print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] UP УСПЕШНО: {acc['login']} 🎉")
-            time.sleep(8 + random.uniform(0, 4))
-        except TimeoutException:
-            print("UP ссылка не найдена — возможно, уже апнуто")
+            # Попробуем разные варианты селекторов
+            selectors = [
+                "a.k-up.send",
+                "a[class*='k-up'][class*='send']",
+                "a.up-btn",
+                "a[href*='?up=1']",
+                "//a[contains(@class, 'up') or contains(text(), 'UP') or contains(text(), 'ქართული')]"
+            ]
+
+            for sel in selectors:
+                try:
+                    if sel.startswith("//"):
+                        up_link = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.XPATH, sel))
+                        )
+                    else:
+                        up_link = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, sel))
+                        )
+                    up_url = up_link.get_attribute("href")
+                    print(f"UP найден по селектору '{sel}' — переходим по {up_url}")
+                    driver.get(up_url)
+                    up_success = True
+                    print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] UP УСПЕШНО ВЫПОЛНЕН ДЛЯ {acc['login']} 🎉🎉🎉")
+                    time.sleep(8 + random.uniform(0, 4))
+                    break
+                except TimeoutException:
+                    continue
+
+            if not up_success:
+                print("UP не найден ни по одному селектору — возможно, уже апнуто сегодня")
+
+        except Exception as e:
+            print(f"Ошибка при UP у {acc['login']}: {str(e)}")
 
         # Логаут
         try:
@@ -133,7 +150,7 @@ def process_account(driver, acc):
             print("LogOut не найден — следующий цикл будет чистым")
 
     except Exception as e:
-        print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] ОШИБКА у {acc['login']}: {str(e)}")
+        print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] КРИТИЧЕСКАЯ ОШИБКА у {acc['login']}: {str(e)}")
 
 def run_cycle():
     if not is_working_time():
@@ -158,9 +175,10 @@ def run_cycle():
 
 run_cycle()
 
-schedule.every(10).minutes.do(run_cycle)
+schedule.every(2).minutes.do(run_cycle)
 
-print("БОТ ЗАПУЩЕН НА СЕРВЕРЕ! Готов к вечной работе.")
+print("БОТ ЗАПУЩЕН! UP ищется по нескольким селекторам + прямой переход.")
+print("Браузер видим — смотри процесс.")
 while True:
     schedule.run_pending()
     time.sleep(1)
