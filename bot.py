@@ -32,7 +32,7 @@ if not accounts:
     print("ОШИБКА: Нет аккаунтов!")
     exit()
 
-print(f"Загружено {len(accounts)} аккаунтов. Финальная версия с гарантированным убийством процессов Chrome.")
+print(f"Загружено {len(accounts)} аккаунтов. Финальная версия с убийством процессов и всеми фиксами.")
 
 TBILISI_TZ = ZoneInfo('Asia/Tbilisi')
 
@@ -53,6 +53,9 @@ def get_driver():
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
     options.add_argument('--window-size=1920,1080')
+
+    # Для сервера — явно указываем путь к Chromium
+    options.binary_location = "/usr/bin/chromium-browser"
 
     driver = uc.Chrome(
         options=options,
@@ -229,7 +232,7 @@ def run_cycle():
         except:
             print("Driver.quit() не сработал")
         time.sleep(2)
-        kill_chrome_processes()  # ГАРАНТИРОВАННОЕ УБИЙСТВО ПРОЦЕССОВ
+        kill_chrome_processes()
         time.sleep(3)
     print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] Цикл завершён — процессы очищены\n")
 
@@ -237,7 +240,7 @@ run_cycle()
 
 schedule.every(1).minutes.do(run_cycle)
 
-print("БОТ ЗАПУЩЕН! С гарантированным убийством всех Chrome-процессов после каждого цикла.")
+print("БОТ ЗАПУЩЕН! Финальная версия с убийством процессов и всеми фиксами.")
 while True:
     schedule.run_pending()
     time.sleep(1)
