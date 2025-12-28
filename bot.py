@@ -1,8 +1,6 @@
 import time
 import random
 import os
-import platform  # НОВОЕ — определяем ОС
-import subprocess  # НОВОЕ — для убийства процессов
 from dotenv import load_dotenv
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -32,14 +30,14 @@ if not accounts:
     print("ОШИБКА: Нет аккаунтов!")
     exit()
 
-print(f"Загружено {len(accounts)} аккаунтов. С фиксом утечки Chrome-процессов.")
+print(f"Загружено {len(accounts)} аккаунтов. Финальная стабильная версия.")
 
 TBILISI_TZ = ZoneInfo('Asia/Tbilisi')
 
 def is_working_time():
     now = datetime.now(TBILISI_TZ)
     start = dtime(15, 0)
-    end = dtime(5, 0)
+    end = dtime(3, 30)
     if start <= end:
         return start <= now.time() <= end
     else:
@@ -47,7 +45,7 @@ def is_working_time():
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')
+    options.add_argument('--headless=new')  # Включи для фона; закомментируй, если хочешь видеть окно
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
@@ -59,21 +57,6 @@ def get_driver():
         use_subprocess=True
     )
     return driver
-
-def kill_chrome_processes():
-    system = platform.system()
-    try:
-        if system == "Windows":
-            subprocess.run(["taskkill", "/F", "/IM", "chrome.exe", "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe", "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("Все Chrome-процессы убиты (Windows)")
-        else:  # Linux/Ubuntu
-            subprocess.run(["pkill", "-f", "chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["pkill", "-f", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["pkill", "-f", "undetected_chromedriver"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("Все Chrome-процессы убиты (Linux)")
-    except:
-        pass
 
 def process_account(driver, acc):
     try:
@@ -90,6 +73,12 @@ def process_account(driver, acc):
                 clicked = True
                 time.sleep(3 + random.uniform(0, 2))
                 break
+
+        # После защиты — принудительно на страницу логина (чтобы не оставаться на /online-escorts/)
+        if clicked or "online-escorts" in driver.current_url:
+            print("После защиты — переходим на страницу логина вручную")
+            driver.get("https://43xgeorgia.me/wp-login.php")
+            time.sleep(5 + random.uniform(0, 3))
 
         # Логин
         try:
@@ -112,9 +101,9 @@ def process_account(driver, acc):
             print("Кнопка входа нажата")
             time.sleep(8 + random.uniform(0, 3))
         except TimeoutException:
-            print("Уже залогинен — пропускаем")
+            print("Форма логина не найдена — возможно, уже залогинен")
 
-        # UP
+        # UP — с несколькими селекторами
         up_success = False
         selectors = [
             "a.k-up.send",
@@ -147,7 +136,7 @@ def process_account(driver, acc):
         if not up_success:
             print("UP не найден — возможно, уже апнуто")
 
-        # Защита после UP (если появилась)
+        # Защита после UP
         clicked = False
         for elem in driver.find_elements(By.XPATH, "//button | //div[contains(@style, 'cursor: pointer')]"):
             if any(word in elem.text.lower() for word in ["click", "нажмите", "აქ"]):
@@ -163,22 +152,41 @@ def process_account(driver, acc):
                 up_link = WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "a.k-up.send"))
                 )
-                up_url = up_link.get_attribute("href")
-                driver.get(up_url)
+                driver.get(up_link.get_attribute("href"))
                 print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] Повторный UP после защиты: {acc['login']} 🎉")
             except TimeoutException:
                 print("Повторный UP не найден")
 
-        # Логаут
+        # ЖЕЛЕЗНЫЙ ЛОГАУТ
+        logout_success = False
         try:
             logout_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'LogOut') or contains(text(), 'გამოსვლა') or contains(@href, 'logout')]"))
             )
             driver.execute_script("arguments[0].click();", logout_btn)
-            print("Логаут выполнен")
             time.sleep(4)
+            if "wp-login" in driver.current_url:
+                logout_success = True
         except TimeoutException:
-            print("LogOut не найден — следующий цикл будет чистым")
+            pass
+
+        if not logout_success:
+            print("Кнопка LogOut не сработала — прямой URL")
+            driver.get("https://43xgeorgia.me/wp-login.php?action=logout")
+            time.sleep(5)
+            # Подтверждение логаута
+            try:
+                confirm_link = driver.find_element(By.XPATH, "//a[contains(@href, 'action=logout') and contains(text(), 'log out')]")
+                driver.execute_script("arguments[0].click();", confirm_link)
+                time.sleep(4)
+                logout_success = True
+            except:
+                pass
+
+        if logout_success:
+            print("Логаут выполнен успешно")
+        else:
+            print("Логаут не удался — следующий цикл будет с новым браузером")
 
     except Exception as e:
         print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] КРИТИЧЕСКАЯ ОШИБКА у {acc['login']}: {str(e)}")
@@ -200,19 +208,15 @@ def run_cycle():
     finally:
         try:
             driver.quit()
-            print("Driver.quit() выполнен")
         except:
-            print("Driver.quit() не сработал")
-        # ГАРАНТИРОВАННОЕ УБИЙСТВО ПРОЦЕССОВ
-        kill_chrome_processes()
-        time.sleep(2)
+            pass
     print(f"[{datetime.now(TBILISI_TZ).strftime('%H:%M')}] Цикл завершён\n")
 
 run_cycle()
 
 schedule.every(1).minutes.do(run_cycle)
 
-print("БОТ ЗАПУЩЕН! С гарантированным убийством Chrome-процессов после каждого цикла.")
+print("БОТ ЗАПУЩЕН! Финальная версия с принудительным переходом на логин и железным логаутом.")
 while True:
     schedule.run_pending()
     time.sleep(1)
