@@ -39,7 +39,7 @@ TBILISI_TZ = ZoneInfo('Asia/Tbilisi')
 def is_working_time():
     now = datetime.now(TBILISI_TZ)
     start = dtime(15, 0)
-    end = dtime(4, 0)
+    end = dtime(6, 0)
     if start <= end:
         return start <= now.time() <= end
     else:
@@ -252,4 +252,5 @@ print("БОТ ЗАПУЩЕН! Финальная версия с всеми фи
 while True:
     schedule.run_pending()
     time.sleep(1)
+
 
