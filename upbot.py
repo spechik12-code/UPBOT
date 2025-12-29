@@ -26,7 +26,7 @@ TBILISI_TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tbilisi"))
 # РЕЖИМ РАБОТЫ (Тбилиси):
 # С 15:00 до 03:30 (через полночь)
 WORK_START = dtime(15, 0)
-WORK_END = dtime(3, 30)
+WORK_END = dtime(6, 30)
 
 # Headless режим: на сервере true, локально можно false
 HEADLESS = os.getenv("HEADLESS", "true").lower() in ("1", "true", "yes")
@@ -285,3 +285,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
