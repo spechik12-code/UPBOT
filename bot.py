@@ -47,7 +47,7 @@ def is_working_time():
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')
+    # options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
@@ -252,5 +252,6 @@ print("БОТ ЗАПУЩЕН! Финальная версия с всеми фи
 while True:
     schedule.run_pending()
     time.sleep(1)
+
 
 
