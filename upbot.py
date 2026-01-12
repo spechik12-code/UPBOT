@@ -579,4 +579,5 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         # Финальная очистка
+
         print(f"\n[{now_str()}] 🧹 Завершение работы...")
