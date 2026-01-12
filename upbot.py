@@ -215,8 +215,27 @@ def apply_flaresolverr_cookies(driver, flaresolverr_result):
         print(f"[{now_str()}] ⚠️ Нет кук для применения")
         return False
     
+    # ОТЛАДКА: смотрим какие куки получили
+    print(f"[{now_str()}] 🔍 ДЕБАГ: Получено {len(cookies)} кук от FlareSolverr:")
+    for i, cookie in enumerate(cookies):
+        print(f"    Кука {i+1}: name='{cookie.get('name')}', domain='{cookie.get('domain')}', "
+              f"path='{cookie.get('path')}', secure={cookie.get('secure', False)}")
+    
     try:
-        # Очищаем старые куки
+        # СНАЧАЛА нужно перейти на домен, к которому относятся куки!
+        # Куки не будут установлены для произвольного домена
+        if cookies and cookies[0].get('domain'):
+            domain = cookies[0]['domain']
+            # Убираем точку в начале если есть (например .43xgeorgia.me -> 43xgeorgia.me)
+            if domain.startswith('.'):
+                domain = domain[1:]
+            
+            # Переходим на домен
+            driver.get(f"https://{domain}")
+            time.sleep(2)
+            print(f"[{now_str()}] 🌐 Перешли на домен кук: {domain}")
+        
+        # Очищаем старые куки (после перехода на домен)
         driver.delete_all_cookies()
         
         # Устанавливаем User-Agent
@@ -225,6 +244,7 @@ def apply_flaresolverr_cookies(driver, flaresolverr_result):
             driver.execute_cdp_cmd('Network.setUserAgentOverride', {
                 "userAgent": user_agent
             })
+            print(f"[{now_str()}] 🤖 Установлен User-Agent из FlareSolverr")
         
         # Добавляем все куки
         success_count = 0
@@ -233,7 +253,7 @@ def apply_flaresolverr_cookies(driver, flaresolverr_result):
                 cookie_dict = {
                     'name': cookie['name'],
                     'value': cookie['value'],
-                    'domain': cookie.get('domain', '.43xgeorgia.me'),
+                    'domain': cookie.get('domain', '43xgeorgia.me'),  # Убрал точку!
                     'path': cookie.get('path', '/'),
                     'secure': cookie.get('secure', False),
                     'httpOnly': cookie.get('httpOnly', False)
@@ -244,10 +264,19 @@ def apply_flaresolverr_cookies(driver, flaresolverr_result):
                 
                 driver.add_cookie(cookie_dict)
                 success_count += 1
-            except:
+                print(f"[{now_str()}] ✓ Добавлена кука: {cookie['name']}")
+            except Exception as e:
+                print(f"[{now_str()}] ✗ Ошибка добавления куки {cookie.get('name')}: {e}")
                 continue
         
         print(f"[{now_str()}] 🍪 Применено кук: {success_count}/{len(cookies)}")
+        
+        # Проверяем, что куки установились
+        driver.refresh()
+        time.sleep(2)
+        current_cookies = driver.get_cookies()
+        print(f"[{now_str()}] 🔍 Проверка: в браузере сейчас {len(current_cookies)} кук")
+        
         return success_count > 0
         
     except Exception as e:
@@ -262,67 +291,127 @@ def navigate_with_flaresolverr(driver, flaresolverr, url):
     result = flaresolverr.get_via_flaresolverr(url)
     
     if not result.get("success"):
+        print(f"[{now_str()}] ❌ FlareSolverr не смог получить страницу")
         return False
     
-    # Загружаем HTML
-    driver.get("about:blank")
-    html = result.get("html", "")
-    if html:
-        try:
-            # Экранируем обратные кавычки
-            safe_html = html.replace('`', '\\`').replace('${', '\\${')
-            driver.execute_script(f"""
-                document.open();
-                document.write(`{safe_html}`);
-                document.close();
-            """)
-            time.sleep(2)
-        except Exception as e:
-            print(f"[{now_str()}] ⚠️ Ошибка загрузки HTML: {e}")
+    print(f"[{now_str()}] 🔗 FlareSolverr получил страницу, статус: {result.get('status')}")
     
-    # Применяем куки и обновляем
-    if apply_flaresolverr_cookies(driver, result):
-        driver.refresh()
-        time.sleep(3)
+    # 1. ПЕРВОЕ: применяем куки
+    if not apply_flaresolverr_cookies(driver, result):
+        print(f"[{now_str()}] ⚠️ Куки не применились, пробуем загрузить страницу напрямую")
+        # Если куки не применились, просто переходим по URL
+        driver.get(url)
+        time.sleep(5)
+        # Проверяем, не попали ли на капчу
+        page_source = driver.page_source.lower()
+        if "checking your browser" in page_source or "i'm not a robot" in page_source:
+            print(f"[{now_str()}] ❌ Все равно попали на капчу")
+            return False
         return True
     
-    return False
+    # 2. После успешного применения кук загружаем HTML или просто переходим
+    print(f"[{now_str()}] 🚀 Переходим по URL с примененными куками...")
+    driver.get(url)
+    time.sleep(5)
+    
+    # Проверяем, не попали ли на капчу
+    page_source = driver.page_source.lower()
+    if "checking your browser" in page_source or "i'm not a robot" in page_source:
+        print(f"[{now_str()}] ❌ Все равно попали на капчу после применения кук")
+        return False
+    
+    print(f"[{now_str()}] ✅ Успешно обошли защиту!")
+    return True
 
 def handle_18plus(driver):
     """Обработка 18+ защиты"""
+    print(f"[{now_str()}] 🔞 Ищем 18+ защиту...")
+    
+    # Сначала проверим, есть ли уже 18+ защита на странице
+    page_source = driver.page_source.lower()
+    adult_keywords = ["adult", "18+", "age verification", "confirm age", "adult content"]
+    
+    for keyword in adult_keywords:
+        if keyword in page_source:
+            print(f"[{now_str()}] 🔍 Найдено упоминание 18+: {keyword}")
+            break
+    
     try:
         elements = driver.find_elements(By.XPATH, 
             "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'click') or "
             "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'continue') or "
             "contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'продолж') or "
-            "contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'наж')]"
+            "contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'наж') or "
+            "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'enter') or "
+            "contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'agree')]"
         )
         
         for elem in elements:
             if elem.is_displayed():
+                elem_text = elem.text.strip().lower()
+                print(f"[{now_str()}] 🔘 Найдена кнопка: '{elem_text}'")
                 driver.execute_script("arguments[0].click();", elem)
                 print(f"[{now_str()}] ✅ 18+ защита пройдена")
                 time.sleep(2)
                 return True
-    except:
-        pass
+        
+        # Пробуем другие селекторы
+        selectors = [
+            "button",
+            "input[type='button']",
+            "input[type='submit']",
+            "a.btn",
+            "a.button",
+            "div[onclick*='click']",
+            "div[style*='cursor:pointer']"
+        ]
+        
+        for selector in selectors:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                for elem in elements:
+                    if elem.is_displayed():
+                        elem_text = elem.text.strip().lower()
+                        if elem_text and len(elem_text) < 50:  # Не слишком длинный текст
+                            print(f"[{now_str()}] 🎯 Кликаем по элементу с текстом: '{elem_text}'")
+                            driver.execute_script("arguments[0].click();", elem)
+                            time.sleep(1)
+                            return True
+            except:
+                continue
+                
+    except Exception as e:
+        print(f"[{now_str()}] ⚠️ Ошибка при поиске 18+ защиты: {e}")
     
+    print(f"[{now_str()}] ℹ️ 18+ защита не найдена или не требуется")
     return False
 
 def login_to_site(driver, account):
     """Логин на сайте"""
+    print(f"[{now_str()}] 🔐 Начинаем логин для {account['login']}...")
+    
     try:
         # Переходим на страницу логина
-        driver.get("https://43xgeorgia.me/wp-login.php")
+        login_url = "https://43xgeorgia.me/wp-login.php"
+        print(f"[{now_str()}] 📍 Переходим на {login_url}")
+        driver.get(login_url)
         time.sleep(3)
         
-        # Поле логина
+        # Проверяем, не попали ли на капчу
+        page_source = driver.page_source.lower()
+        if "checking your browser" in page_source or "i'm not a robot" in page_source:
+            print(f"[{now_str()}] ❌ Попали на капчу при переходе на логин")
+            return False
+        
+        # Ищем поле логина
+        print(f"[{now_str()}] 🔍 Ищем поле логина...")
         username = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "user_login"))
         )
-        username.clear()
         
         # Человекоподобный ввод
+        print(f"[{now_str()}] ⌨️ Вводим логин...")
+        username.clear()
         for char in account['login']:
             username.send_keys(char)
             time.sleep(random.uniform(0.05, 0.15))
@@ -330,6 +419,7 @@ def login_to_site(driver, account):
         time.sleep(random.uniform(0.5, 1))
         
         # Поле пароля
+        print(f"[{now_str()}] 🔑 Вводим пароль...")
         password = driver.find_element(By.ID, "user_pass")
         password.clear()
         for char in account['password']:
@@ -339,13 +429,18 @@ def login_to_site(driver, account):
         time.sleep(random.uniform(0.5, 1))
         
         # Кнопка входа
+        print(f"[{now_str()}] 🖱️ Нажимаем кнопку входа...")
         submit = driver.find_element(By.ID, "wp-submit")
         submit.click()
         
         # Ждем и проверяем результат
+        print(f"[{now_str()}] ⏳ Ждем результат логина...")
         time.sleep(5)
         
-        if "wp-admin" in driver.current_url or "profile.php" in driver.current_url:
+        current_url = driver.current_url
+        print(f"[{now_str()}] 🌐 Текущий URL: {current_url}")
+        
+        if "wp-admin" in current_url or "profile.php" in current_url or "wp-login.php?loggedout" not in current_url:
             print(f"[{now_str()}] ✅ Успешный логин: {account['login']}")
             return True
         else:
@@ -353,7 +448,8 @@ def login_to_site(driver, account):
             try:
                 error_div = driver.find_element(By.ID, "login_error")
                 if error_div:
-                    print(f"[{now_str()}] ❌ Ошибка логина: {error_div.text[:100]}")
+                    error_text = error_div.text[:100]
+                    print(f"[{now_str()}] ❌ Ошибка логина: {error_text}")
             except:
                 print(f"[{now_str()}] ⚠️ Неизвестная ошибка логина")
             
@@ -365,6 +461,8 @@ def login_to_site(driver, account):
 
 def perform_up(driver, account):
     """Выполняем UP действие"""
+    print(f"[{now_str()}] 🎯 Ищем кнопку UP для {account['login']}...")
+    
     selectors = [
         "a.k-up.send",
         "a[class*='k-up'][class*='send']",
@@ -372,61 +470,116 @@ def perform_up(driver, account):
         "a[href*='?up=1']",
         "//a[contains(@class, 'up')]",
         "//button[contains(@class, 'up')]",
-        "//*[contains(text(), 'UP') or contains(text(), 'Up')]",
+        "//*[contains(text(), 'UP') or contains(text(), 'Up') or contains(text(), 'ПОДНЯТЬ')]",
     ]
     
     for selector in selectors:
         try:
+            print(f"[{now_str()}] 🔎 Пробуем селектор: {selector}")
+            
             if selector.startswith("//"):
-                element = WebDriverWait(driver, 8).until(
+                element = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, selector))
                 )
             else:
-                element = WebDriverWait(driver, 8).until(
+                element = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
                 )
             
             # Кликаем
             href = element.get_attribute("href")
             if href:
+                print(f"[{now_str()}] 🔗 Нашли ссылку UP: {href}")
                 driver.get(href)
             else:
+                print(f"[{now_str()}] 🖱️ Кликаем по элементу UP")
                 driver.execute_script("arguments[0].click();", element)
             
-            print(f"[{now_str()}] 🎯 UP выполнен для {account['login']}")
+            print(f"[{now_str()}] 🎉 UP выполнен для {account['login']}")
             time.sleep(3)
             return True
             
-        except:
+        except Exception as e:
+            print(f"[{now_str()}] ⚠️ Селектор {selector} не сработал: {e}")
             continue
+    
+    # Дополнительный поиск по тексту
+    print(f"[{now_str()}] 🔍 Дополнительный поиск UP...")
+    try:
+        # Ищем все ссылки
+        all_links = driver.find_elements(By.TAG_NAME, "a")
+        for link in all_links:
+            try:
+                href = link.get_attribute("href") or ""
+                text = link.text or ""
+                if "up" in href.lower() or "up" in text.lower() or "поднять" in text.lower():
+                    if link.is_displayed():
+                        print(f"[{now_str()}] 🎯 Нашли UP по тексту/ссылке: {text}")
+                        link.click()
+                        time.sleep(3)
+                        print(f"[{now_str()}] 🎉 UP выполнен (альтернативный метод)")
+                        return True
+            except:
+                continue
+    except:
+        pass
     
     print(f"[{now_str()}] ⚠️ UP не найден для {account['login']}")
     return False
 
 def logout(driver):
     """Выход из аккаунта"""
+    print(f"[{now_str()}] 👋 Пытаемся выйти...")
+    
     try:
-        driver.get("https://43xgeorgia.me/wp-login.php?action=logout")
-        time.sleep(2)
+        logout_urls = [
+            "https://43xgeorgia.me/wp-login.php?action=logout",
+            "https://43xgeorgia.me/?action=logout",
+            "https://43xgeorgia.me/logout"
+        ]
         
-        # Ищем ссылку подтверждения выхода
-        try:
-            confirm = driver.find_element(By.LINK_TEXT, "log out")
-            if confirm:
-                confirm.click()
-        except:
-            pass
-            
-        print(f"[{now_str()}] 👋 Выход выполнен")
+        for url in logout_urls:
+            try:
+                driver.get(url)
+                time.sleep(2)
+                
+                # Ищем подтверждение выхода
+                confirm_selectors = [
+                    "//a[contains(text(), 'log out') or contains(text(), 'Log Out') or contains(text(), 'Выйти')]",
+                    "//a[contains(@href, 'logout')]",
+                    "//button[contains(text(), 'Выход') or contains(text(), 'Logout')]",
+                ]
+                
+                for sel in confirm_selectors:
+                    try:
+                        confirm_btn = driver.find_element(By.XPATH, sel)
+                        if confirm_btn.is_displayed():
+                            print(f"[{now_str()}] ✅ Нашли кнопку подтверждения выхода")
+                            confirm_btn.click()
+                            time.sleep(2)
+                            break
+                    except:
+                        continue
+                
+                print(f"[{now_str()}] ✅ Выход выполнен")
+                return True
+                
+            except:
+                continue
+        
+        # Если не нашли специальную страницу, просто переходим на главную
+        driver.get(SITE_URL)
         return True
-    except:
+        
+    except Exception as e:
+        print(f"[{now_str()}] ⚠️ Ошибка при выходе: {e}")
         return False
 
 # =========================
 # ACCOUNT PROCESSING
 # =========================
 def process_single_account(account, flaresolverr):
-    """Обработка одного аккаунта"""
+    """Обработка одного аккаунта (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ)"""
     print(f"\n{'='*50}")
     print(f"[{now_str()}] 🔄 Обрабатываем аккаунт #{account['id']}: {account['login']}")
     
@@ -435,22 +588,51 @@ def process_single_account(account, flaresolverr):
         # 1. Создаем драйвер
         driver = create_driver()
         
-        # 2. Получаем главную страницу через FlareSolverr
-        if not navigate_with_flaresolverr(driver, flaresolverr, SITE_URL):
-            print(f"[{now_str()}] ❌ Не удалось обойти защиту")
+        # 2. Стратегия: FlareSolverr ТОЛЬКО для страницы логина
+        # Потому что главная страница может не требовать кук, а страница логина - требует
+        print(f"[{now_str()}] 🎯 Стратегия: FlareSolverr для страницы логина")
+        
+        login_url = "https://43xgeorgia.me/wp-login.php"
+        print(f"[{now_str()}] 🔐 Запрашиваем страницу логина через FlareSolverr...")
+        
+        result = flaresolverr.get_via_flaresolverr(login_url)
+        
+        if not result.get("success"):
+            print(f"[{now_str()}] ❌ FlareSolverr не смог получить страницу логина")
             return False
         
-        # 3. Обрабатываем 18+
+        print(f"[{now_str()}] ✅ FlareSolverr получил страницу логина")
+        
+        # 3. Применяем куки к драйверу
+        if apply_flaresolverr_cookies(driver, result):
+            print(f"[{now_str()}] ✅ Куки успешно применены")
+        else:
+            print(f"[{now_str()}] ⚠️ Куки не применились, пробуем без них")
+        
+        # 4. Теперь переходим на главную страницу
+        print(f"[{now_str()}] 🏠 Переходим на главную страницу...")
+        driver.get(SITE_URL)
+        time.sleep(3)
+        
+        # Проверяем, не попали ли на капчу
+        page_source = driver.page_source.lower()
+        if "checking your browser" in page_source or "i'm not a robot" in page_source:
+            print(f"[{now_str()}] ❌ Попали на капчу на главной странице")
+            return False
+        
+        # 5. Обрабатываем 18+ защиту
         handle_18plus(driver)
         
-        # 4. Логин
+        # 6. Теперь логин (должен работать, так как у нас есть куки от FlareSolverr)
         if not login_to_site(driver, account):
+            print(f"[{now_str()}] ❌ Логин не удался")
             return False
         
-        # 5. Выполняем UP
-        perform_up(driver, account)
+        # 7. Выполняем UP
+        if not perform_up(driver, account):
+            print(f"[{now_str()}] ⚠️ UP не выполнен, но продолжаем...")
         
-        # 6. Выход
+        # 8. Выход
         logout(driver)
         
         print(f"[{now_str()}] ✅ Аккаунт #{account['id']} успешно обработан!")
@@ -458,6 +640,8 @@ def process_single_account(account, flaresolverr):
         
     except Exception as e:
         print(f"[{now_str()}] ❌ Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         return False
         
     finally:
@@ -474,7 +658,7 @@ def process_single_account(account, flaresolverr):
 # =========================
 def main():
     print(f"\n{'='*60}")
-    print(f"[{now_str()}] 🚀 ЗАПУСК UPBOT + FLARESOLVERR")
+    print(f"[{now_str()}] 🚀 ЗАПУСК UPBOT + FLARESOLVERR (ОБНОВЛЕННАЯ ВЕРСИЯ)")
     print(f"{'='*60}")
     
     # Проверяем Python версию
@@ -516,6 +700,7 @@ def main():
     print(f"\n[{'='*50}]")
     print(f"[{now_str()}] ⏰ Режим работы: {WORK_START.strftime('%H:%M')} - {WORK_END.strftime('%H:%M')}")
     print(f"[{now_str()}] 💾 Headless режим: {'Да' if HEADLESS else 'Нет'}")
+    print(f"[{now_str()}] 📊 Аккаунтов для обработки: {len(accounts)}")
     print(f"[{'='*50}]\n")
     
     while True:
@@ -527,12 +712,14 @@ def main():
             print(f"[{now_str()}] 🔄 ЦИКЛ #{cycle} НАЧАТ")
             print(f"[{'='*50}]\n")
             
-            # Перемешиваем аккаунты
+            # Перемешиваем аккаунты для разнообразия
             random.shuffle(accounts)
             
             # Обрабатываем каждый аккаунт
+            success_count = 0
             for account in accounts:
-                process_single_account(account, flaresolverr)
+                if process_single_account(account, flaresolverr):
+                    success_count += 1
                 
                 # Пауза между аккаунтами
                 pause = random.randint(PAUSE_MIN, PAUSE_MAX)
@@ -541,6 +728,7 @@ def main():
             
             print(f"\n[{'='*50}]")
             print(f"[{now_str()}] ✅ ЦИКЛ #{cycle} ЗАВЕРШЕН")
+            print(f"[{now_str()}] 📈 Успешно обработано: {success_count}/{len(accounts)} аккаунтов")
             print(f"[{'='*50}]\n")
             
             # Большая пауза между циклами
@@ -579,5 +767,4 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         # Финальная очистка
-
         print(f"\n[{now_str()}] 🧹 Завершение работы...")
