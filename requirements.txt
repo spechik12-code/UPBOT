@@ -1,4 +1,0 @@
-python-dotenv
-undetected-chromedriver
-selenium
-schedule
