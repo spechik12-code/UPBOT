@@ -80,13 +80,10 @@ class UpBot:
         if CUSTOM_USER_AGENT:
             options.add_argument(f'--user-agent={CUSTOM_USER_AGENT}')
         
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
         
         try:
             self.driver = uc.Chrome(
-                options=options,
-                version_main=120
+                options=options
             )
             
             # Скрываем WebDriver
@@ -388,3 +385,4 @@ if __name__ == "__main__":
         logger.error(f"Неожиданная ошибка: {e}")
         import traceback
         traceback.print_exc()
+
