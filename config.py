@@ -1,4 +1,3 @@
-cat > /opt/bots/UPBOT/config.py << 'EOF'
 import os
 import random
 from datetime import time as dtime
@@ -67,3 +66,4 @@ WORK_START = parse_hhmm(os.getenv("WORK_START", "16:00"), dtime(16, 0))
 WORK_END = parse_hhmm(os.getenv("WORK_END", "03:30"), dtime(3, 30))
 
 HEADLESS = os.getenv("HEADLESS", "true").lower() in ("1", "true", "yes")
+
