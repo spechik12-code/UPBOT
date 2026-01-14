@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Основной бот с поддержкой прокси и FlareSolverr
+Основной бот - использует FlareSolverr как основной метод
 """
 import os
 import sys
@@ -16,14 +16,13 @@ from config import (
     SITE_URL, TBILISI_TZ, PAUSE_MIN, PAUSE_MAX, ROUND_PAUSE_MAX,
     WORK_START, WORK_END, HEADLESS,
     FLARESOLVERR_URL, FLARESOLVERR_ENABLED, USE_FLARESOLVERR_SESSIONS,
-    get_proxy, get_proxies_dict, PROXY_LIST
+    USE_DIRECT_PROXY, PROXY_LIST
 )
-from proxy_utils import get_working_proxy, health_check_proxies
+from flaresolverr_client import AdvancedFlareSolverrClient
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
 import requests
 import json
 from dotenv import load_dotenv
@@ -53,129 +52,19 @@ for i in range(1, 20):
         })
 
 logger.info(f"Загружено аккаунтов: {len(ACCOUNTS)}")
-logger.info(f"Настроено прокси: {len(PROXY_LIST)}")
-
-class FlareSolverrClient:
-    """Клиент для работы с FlareSolverr"""
-    
-    def __init__(self, base_url=FLARESOLVERR_URL):
-        self.base_url = base_url
-        self.session = None
-        self.session_id = None
-        
-    def create_session(self):
-        """Создать сессию в FlareSolverr"""
-        if not FLARESOLVERR_ENABLED:
-            return None
-            
-        try:
-            payload = {
-                "cmd": "sessions.create",
-                "session": f"upbot_{int(time.time())}"
-            }
-            
-            proxies = None
-            if PROXY_LIST and FLARESOLVERR_ENABLED:
-                proxy_url = get_working_proxy()
-                if proxy_url:
-                    proxies = get_proxies_dict(proxy_url)
-            
-            response = requests.post(
-                self.base_url,
-                json=payload,
-                timeout=30,
-                proxies=proxies
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'ok':
-                    self.session_id = data['session']
-                    self.session = data['session']
-                    logger.info(f"Создана сессия FlareSolverr: {self.session_id}")
-                    return self.session_id
-                else:
-                    logger.error(f"Ошибка создания сессии: {data.get('message')}")
-            else:
-                logger.error(f"HTTP ошибка: {response.status_code}")
-                
-        except Exception as e:
-            logger.error(f"Ошибка создания сессии FlareSolverr: {e}")
-        
-        return None
-    
-    def solve(self, url, max_timeout=60000):
-        """Решить капчу/получить страницу через FlareSolverr"""
-        if not FLARESOLVERR_ENABLED:
-            return None
-            
-        if not self.session_id and USE_FLARESOLVERR_SESSIONS:
-            self.create_session()
-        
-        try:
-            payload = {
-                "cmd": "request.get",
-                "url": url,
-                "maxTimeout": max_timeout,
-            }
-            
-            if self.session_id and USE_FLARESOLVERR_SESSIONS:
-                payload["session"] = self.session_id
-            
-            proxies = None
-            if PROXY_LIST:
-                proxy_url = get_working_proxy()
-                if proxy_url:
-                    proxies = get_proxies_dict(proxy_url)
-            
-            response = requests.post(
-                self.base_url,
-                json=payload,
-                timeout=90,
-                proxies=proxies
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'ok':
-                    logger.info(f"FlareSolverr успешно получил страницу: {url}")
-                    return data['solution']
-                else:
-                    logger.warning(f"FlareSolverr ошибка: {data.get('message')}")
-            else:
-                logger.error(f"HTTP ошибка FlareSolverr: {response.status_code}")
-                
-        except Exception as e:
-            logger.error(f"Ошибка FlareSolverr: {e}")
-        
-        return None
-    
-    def destroy_session(self):
-        """Уничтожить сессию"""
-        if self.session_id:
-            try:
-                payload = {
-                    "cmd": "sessions.destroy",
-                    "session": self.session_id
-                }
-                requests.post(self.base_url, json=payload, timeout=10)
-                logger.info(f"Сессия FlareSolverr уничтожена: {self.session_id}")
-            except:
-                pass
-            self.session_id = None
+logger.info(f"Настроено прокси для FlareSolverr: {len(PROXY_LIST)}")
+logger.info(f"FlareSolverr основной метод: {'ДА' if FLARESOLVERR_ENABLED else 'НЕТ'}")
 
 class UpBot:
-    """Основной класс бота"""
+    """Основной класс бота с FlareSolverr как основным методом"""
     
-    def __init__(self, account, use_proxy=True):
+    def __init__(self, account):
         self.account = account
-        self.use_proxy = use_proxy
         self.driver = None
-        self.flaresolverr = FlareSolverrClient() if FLARESOLVERR_ENABLED else None
-        self.current_proxy = None
+        self.flaresolverr = AdvancedFlareSolverrClient() if FLARESOLVERR_ENABLED else None
         
-    def setup_driver(self):
-        """Настройка ChromeDriver с прокси"""
+    def setup_driver_no_proxy(self):
+        """Настройка ChromeDriver БЕЗ прокси (так как сайт блокирует прокси)"""
         options = uc.ChromeOptions()
         
         if HEADLESS:
@@ -194,147 +83,203 @@ class UpBot:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        if self.use_proxy and PROXY_LIST:
-            self.current_proxy = get_working_proxy()
-            if self.current_proxy:
-                logger.info(f"Используем прокси: {self.current_proxy[:50]}...")
-                
-                if 'http://' in self.current_proxy:
-                    proxy_url = self.current_proxy
-                    if '@' in proxy_url:
-                        proxy_url = proxy_url.replace('http://', '')
-                        credentials, hostport = proxy_url.split('@')
-                        options.add_argument(f'--proxy-server={hostport}')
-                    else:
-                        options.add_argument(f'--proxy-server={proxy_url.replace("http://", "")}')
-        
         try:
             self.driver = uc.Chrome(
                 options=options,
                 version_main=120
             )
             
+            # Скрываем WebDriver
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             
-            logger.info("ChromeDriver успешно запущен")
+            logger.info("ChromeDriver успешно запущен (без прокси)")
             return True
             
         except Exception as e:
             logger.error(f"Ошибка запуска ChromeDriver: {e}")
             return False
     
-    def login_with_flaresolverr(self):
-        """Вход через FlareSolverr"""
+    def login_via_flaresolverr_cookies(self):
+        """Вход через FlareSolverr с передачей cookies в Selenium"""
         if not self.flaresolverr:
+            logger.warning("FlareSolverr отключен, пробуем прямой вход")
             return False
-            
+        
         try:
-            solution = self.flaresolverr.solve(SITE_URL)
-            if solution and 'response' in solution:
-                logger.info("Получен ответ от FlareSolverr")
-                
-                if 'cookies' in solution:
-                    self.driver.get(SITE_URL)
-                    for cookie in solution['cookies']:
-                        self.driver.add_cookie(cookie)
-                    
-                    self.driver.get(SITE_URL)
-                    return True
-                    
-            return False
+            logger.info("Получаем страницу через FlareSolverr...")
+            solution = self.flaresolverr.solve_with_proxy_rotation(SITE_URL)
             
+            if not solution:
+                logger.error("FlareSolverr не вернул решение")
+                return False
+            
+            status = solution.get('status', 0)
+            if status != 200:
+                logger.warning(f"FlareSolverr вернул статус {status}")
+                return False
+            
+            # Получаем cookies от FlareSolverr
+            cookies = solution.get('cookies', [])
+            user_agent = solution.get('userAgent', '')
+            
+            if not cookies:
+                logger.warning("FlareSolverr не вернул cookies")
+                return False
+            
+            logger.info(f"Получено {len(cookies)} cookies от FlareSolverr")
+            
+            # 1. Устанавливаем User-Agent если есть
+            if user_agent:
+                self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                    "userAgent": user_agent
+                })
+            
+            # 2. Открываем сайт
+            self.driver.get(SITE_URL)
+            time.sleep(2)
+            
+            # 3. Устанавливаем все cookies
+            for cookie in cookies:
+                try:
+                    # Приводим cookie к формату Selenium
+                    selenium_cookie = {
+                        'name': cookie.get('name', ''),
+                        'value': cookie.get('value', ''),
+                        'domain': cookie.get('domain', ''),
+                        'path': cookie.get('path', '/')
+                    }
+                    
+                    # Добавляем дополнительные поля если есть
+                    if 'expires' in cookie:
+                        selenium_cookie['expiry'] = cookie['expires']
+                    if 'httpOnly' in cookie:
+                        selenium_cookie['httpOnly'] = cookie['httpOnly']
+                    if 'secure' in cookie:
+                        selenium_cookie['secure'] = cookie['secure']
+                    
+                    self.driver.add_cookie(selenium_cookie)
+                except Exception as e:
+                    logger.debug(f"Ошибка добавления cookie: {e}")
+            
+            logger.info(f"Cookies установлены")
+            
+            # 4. Обновляем страницу с cookies
+            self.driver.get(SITE_URL)
+            time.sleep(3)
+            
+            # 5. Проверяем успешность
+            current_url = self.driver.current_url
+            page_source = self.driver.page_source.lower()
+            
+            # Проверяем что мы не на странице входа
+            if "login" not in current_url.lower() and "auth" not in current_url.lower():
+                logger.info(f"✅ Успешный вход через FlareSolverr cookies!")
+                return True
+            else:
+                # Проверяем может быть нужно заполнить форму
+                logger.info("Возможно нужно заполнить форму входа...")
+                return self.fill_login_form()
+                
         except Exception as e:
-            logger.error(f"Ошибка FlareSolverr: {e}")
+            logger.error(f"Ошибка входа через FlareSolverr: {e}")
             return False
     
-    def manual_login(self):
-        """Ручной вход через Selenium"""
+    def fill_login_form(self):
+        """Заполнить форму входа если cookies недостаточно"""
         try:
-            self.driver.get(SITE_URL)
-            logger.info(f"Загружена страница: {SITE_URL}")
+            logger.info("Заполняем форму входа...")
             
-            wait = WebDriverWait(self.driver, 20)
+            # Ищем поле логина
+            selectors = [
+                (By.NAME, "username"),
+                (By.ID, "username"),
+                (By.NAME, "email"),
+                (By.ID, "email"),
+                (By.CSS_SELECTOR, "input[type='text']"),
+                (By.CSS_SELECTOR, "input[type='email']")
+            ]
             
-            try:
-                username_field = wait.until(
-                    EC.presence_of_element_located((By.NAME, "username"))
-                )
-                username_field.send_keys(self.account['login'])
-                logger.info("Введен логин")
-            except:
-                selectors = [
-                    (By.ID, "username"),
-                    (By.NAME, "email"),
-                    (By.ID, "email"),
-                    (By.CSS_SELECTOR, "input[type='text']"),
-                    (By.CSS_SELECTOR, "input[type='email']")
-                ]
-                
-                for by, selector in selectors:
-                    try:
-                        elem = self.driver.find_element(by, selector)
-                        elem.send_keys(self.account['login'])
-                        logger.info(f"Логин введен через селектор {by}: {selector}")
-                        break
-                    except:
-                        continue
+            username_field = None
+            for by, selector in selectors:
+                try:
+                    username_field = self.driver.find_element(by, selector)
+                    logger.info(f"Найдено поле логина: {by}={selector}")
+                    break
+                except:
+                    continue
             
-            try:
-                password_field = self.driver.find_element(By.NAME, "password")
-                password_field.send_keys(self.account['password'])
-                logger.info("Введен пароль")
-            except:
-                selectors = [
-                    (By.ID, "password"),
-                    (By.CSS_SELECTOR, "input[type='password']")
-                ]
-                
-                for by, selector in selectors:
-                    try:
-                        elem = self.driver.find_element(by, selector)
-                        elem.send_keys(self.account['password'])
-                        logger.info(f"Пароль введен через селектор {by}: {selector}")
-                        break
-                    except:
-                        continue
+            if not username_field:
+                logger.warning("Не найдено поле логина")
+                return False
             
-            try:
-                login_button = self.driver.find_element(
-                    By.CSS_SELECTOR, 
-                    "button[type='submit'], input[type='submit']"
-                )
-                login_button.click()
-                logger.info("Нажата кнопка входа")
-            except:
-                password_field.submit()
-                logger.info("Отправлена форма через submit")
+            # Вводим логин
+            username_field.clear()
+            username_field.send_keys(self.account['login'])
+            time.sleep(1)
+            
+            # Ищем поле пароля
+            password_field = None
+            for by, selector in [
+                (By.NAME, "password"),
+                (By.ID, "password"),
+                (By.CSS_SELECTOR, "input[type='password']")
+            ]:
+                try:
+                    password_field = self.driver.find_element(by, selector)
+                    logger.info(f"Найдено поле пароля: {by}={selector}")
+                    break
+                except:
+                    continue
+            
+            if not password_field:
+                logger.warning("Не найдено поле пароля")
+                return False
+            
+            # Вводим пароль
+            password_field.clear()
+            password_field.send_keys(self.account['password'])
+            time.sleep(1)
+            
+            # Ищем кнопку отправки
+            for by, selector in [
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CSS_SELECTOR, "input[type='submit']"),
+                (By.CSS_SELECTOR, "button"),
+                (By.CSS_SELECTOR, "input[value='Войти']"),
+                (By.CSS_SELECTOR, "input[value='Login']")
+            ]:
+                try:
+                    submit_button = self.driver.find_element(by, selector)
+                    submit_button.click()
+                    logger.info(f"Нажата кнопка: {by}={selector}")
+                    break
+                except:
+                    continue
             
             time.sleep(5)
             
+            # Проверяем результат
             current_url = self.driver.current_url
-            if "login" not in current_url.lower():
-                logger.info(f"Вход успешен! Текущий URL: {current_url}")
+            if "login" not in current_url.lower() and "auth" not in current_url.lower():
+                logger.info(f"✅ Успешный вход после заполнения формы!")
                 return True
             else:
-                logger.warning("Возможно не удалось войти")
-                try:
-                    screenshot_path = f"/tmp/login_error_acc{self.account['index']}.png"
-                    self.driver.save_screenshot(screenshot_path)
-                    logger.info(f"Скриншот сохранен: {screenshot_path}")
-                except:
-                    pass
-                
+                logger.warning("Вход не удался после заполнения формы")
                 return False
                 
         except Exception as e:
-            logger.error(f"Ошибка при входе: {e}")
+            logger.error(f"Ошибка заполнения формы: {e}")
             return False
     
     def perform_actions(self):
         """Выполнить действия после входа"""
         try:
             time.sleep(random.randint(PAUSE_MIN, PAUSE_MAX))
-            logger.info(f"Аккаунт {self.account['index']}: действия выполнены")
+            
+            # Здесь твоя логика действий
+            # Например: проверка баланса, размещение объявлений и т.д.
+            
+            logger.info(f"Аккаунт {self.account['index']}: базовые действия выполнены")
             return True
             
         except Exception as e:
@@ -346,21 +291,22 @@ class UpBot:
         logger.info(f"Запуск для аккаунта {self.account['index']}: {self.account['login']}")
         
         try:
-            if not self.setup_driver():
+            # Настройка драйвера (БЕЗ прокси!)
+            if not self.setup_driver_no_proxy():
                 return False
             
+            # Пытаемся войти через FlareSolverr
             login_success = False
-            if FLARESOLVERR_ENABLED and self.flaresolverr:
-                logger.info("Пробуем вход через FlareSolverr...")
-                login_success = self.login_with_flaresolverr()
             
-            if not login_success:
-                logger.info("Пробуем ручной вход...")
-                login_success = self.manual_login()
+            if FLARESOLVERR_ENABLED and self.flaresolverr:
+                logger.info("Пытаемся вход через FlareSolverr...")
+                login_success = self.login_via_flaresolverr_cookies()
             
             if login_success:
+                # Выполняем действия
                 self.perform_actions()
                 
+                # Пауза перед выходом
                 pause = random.randint(ROUND_PAUSE_MAX // 2, ROUND_PAUSE_MAX)
                 logger.info(f"Пауза {pause} секунд перед выходом...")
                 time.sleep(pause)
@@ -375,6 +321,7 @@ class UpBot:
             return False
             
         finally:
+            # Закрываем драйвер
             if self.driver:
                 try:
                     self.driver.quit()
@@ -382,6 +329,7 @@ class UpBot:
                 except:
                     pass
             
+            # Закрываем сессию FlareSolverr
             if self.flaresolverr:
                 self.flaresolverr.destroy_session()
 
@@ -397,27 +345,23 @@ def is_working_hours():
 def main():
     """Основная функция"""
     logger.info("=" * 50)
-    logger.info("ЗАПУСК UPBOT")
+    logger.info("ЗАПУСК UPBOT (FlareSolverr + прокси)")
     logger.info(f"Время в Тбилиси: {datetime.now(TBILISI_TZ).strftime('%H:%M:%S')}")
     logger.info(f"Рабочие часы: {WORK_START.strftime('%H:%M')} - {WORK_END.strftime('%H:%M')}")
     logger.info(f"Аккаунтов: {len(ACCOUNTS)}")
-    logger.info(f"Прокси: {len(PROXY_LIST)}")
-    logger.info(f"FlareSolverr: {'ВКЛ' if FLARESOLVERR_ENABLED else 'ВЫКЛ'}")
+    logger.info(f"Прокси для FlareSolverr: {len(PROXY_LIST)}")
     logger.info("=" * 50)
     
+    # Проверка рабочего времени
     if not is_working_hours():
         logger.info("Сейчас не рабочее время. Выход.")
         return
     
-    if PROXY_LIST:
-        working_proxies = health_check_proxies()
-        if not working_proxies:
-            logger.warning("Нет рабочих прокси! Будет использоваться прямое соединение.")
-    
+    # Запуск для каждого аккаунта
     for account in ACCOUNTS:
         logger.info(f"\nОбработка аккаунта {account['index']}")
         
-        bot = UpBot(account, use_proxy=True)
+        bot = UpBot(account)
         success = bot.run()
         
         if success:
@@ -425,6 +369,7 @@ def main():
         else:
             logger.warning(f"⚠️  Аккаунт {account['index']} не обработан")
         
+        # Пауза между аккаунтами
         if account != ACCOUNTS[-1]:
             pause = random.randint(ROUND_PAUSE_MAX // 2, ROUND_PAUSE_MAX)
             logger.info(f"Пауза {pause} секунд перед следующим аккаунтом...")
