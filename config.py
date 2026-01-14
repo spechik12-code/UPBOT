@@ -27,7 +27,7 @@ PROXY_TIMEOUT = int(os.getenv("PROXY_TIMEOUT", "30"))
 
 # Собираем список прокси из .env
 PROXY_LIST = []
-for i in range(1, 10):  # Проверяем PROXY_1..PROXY_9
+for i in range(1, 20):  # Проверяем PROXY_1..PROXY_19
     proxy = os.getenv(f"PROXY_{i}")
     if proxy:
         PROXY_LIST.append(proxy.strip())
@@ -35,7 +35,6 @@ for i in range(1, 10):  # Проверяем PROXY_1..PROXY_9
 # User-Agent
 CUSTOM_USER_AGENT = os.getenv("CUSTOM_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-# Функция для получения прокси
 def get_proxy():
     """Получить случайный прокси или None если нет прокси"""
     if not PROXY_LIST:
@@ -44,7 +43,6 @@ def get_proxy():
     if PROXY_ROTATION:
         return random.choice(PROXY_LIST)
     else:
-        # Можно реализовать более сложную логику ротации
         return random.choice(PROXY_LIST)
 
 def get_proxies_dict(proxy_url=None):
