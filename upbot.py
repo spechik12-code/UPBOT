@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Добавляем путь к текущей директории
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config import (
@@ -34,7 +33,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/opt/bots/UPBOT/bot.log'),
+        logging.FileHandler('bot.log'),
         logging.StreamHandler()
     ]
 )
@@ -43,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Загрузка аккаунтов из .env
 load_dotenv()
 ACCOUNTS = []
-for i in range(1, 10):
+for i in range(1, 20):
     login = os.getenv(f'ACC{i}_LOGIN')
     password = os.getenv(f'ACC{i}_PASS')
     if login and password:
@@ -75,7 +74,6 @@ class FlareSolverrClient:
                 "session": f"upbot_{int(time.time())}"
             }
             
-            # Используем прокси если есть
             proxies = None
             if PROXY_LIST and FLARESOLVERR_ENABLED:
                 proxy_url = get_working_proxy()
@@ -124,7 +122,6 @@ class FlareSolverrClient:
             if self.session_id and USE_FLARESOLVERR_SESSIONS:
                 payload["session"] = self.session_id
             
-            # Используем прокси
             proxies = None
             if PROXY_LIST:
                 proxy_url = get_working_proxy()
@@ -190,41 +187,33 @@ class UpBot:
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
         
-        # User-Agent
         from config import CUSTOM_USER_AGENT
         if CUSTOM_USER_AGENT:
             options.add_argument(f'--user-agent={CUSTOM_USER_AGENT}')
         
-        # Настройки для обхода детекции
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        # Прокси настройки
         if self.use_proxy and PROXY_LIST:
             self.current_proxy = get_working_proxy()
             if self.current_proxy:
                 logger.info(f"Используем прокси: {self.current_proxy[:50]}...")
                 
-                # Для undetected-chromedriver добавляем прокси как аргумент
                 if 'http://' in self.current_proxy:
-                    # Извлекаем хост и порт из URL с аутентификацией
                     proxy_url = self.current_proxy
                     if '@' in proxy_url:
-                        # Формат: http://user:pass@host:port
                         proxy_url = proxy_url.replace('http://', '')
                         credentials, hostport = proxy_url.split('@')
                         options.add_argument(f'--proxy-server={hostport}')
-                        # Для аутентификации может потребоваться расширение
                     else:
                         options.add_argument(f'--proxy-server={proxy_url.replace("http://", "")}')
         
         try:
             self.driver = uc.Chrome(
                 options=options,
-                version_main=120  # Укажите версию Chrome
+                version_main=120
             )
             
-            # Скрываем WebDriver
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             
             logger.info("ChromeDriver успешно запущен")
@@ -242,18 +231,13 @@ class UpBot:
         try:
             solution = self.flaresolverr.solve(SITE_URL)
             if solution and 'response' in solution:
-                # Здесь можно обработать ответ от FlareSolverr
-                # Например, извлечь cookies и использовать их
                 logger.info("Получен ответ от FlareSolverr")
                 
-                # Если FlareSolverr вернул cookies, можно установить их
                 if 'cookies' in solution:
-                    # Устанавливаем cookies в драйвер
                     self.driver.get(SITE_URL)
                     for cookie in solution['cookies']:
                         self.driver.add_cookie(cookie)
                     
-                    # Обновляем страницу с cookies
                     self.driver.get(SITE_URL)
                     return True
                     
@@ -269,10 +253,8 @@ class UpBot:
             self.driver.get(SITE_URL)
             logger.info(f"Загружена страница: {SITE_URL}")
             
-            # Ждем появления формы входа
             wait = WebDriverWait(self.driver, 20)
             
-            # Ищем поле логина
             try:
                 username_field = wait.until(
                     EC.presence_of_element_located((By.NAME, "username"))
@@ -280,7 +262,6 @@ class UpBot:
                 username_field.send_keys(self.account['login'])
                 logger.info("Введен логин")
             except:
-                # Пробуем другие селекторы
                 selectors = [
                     (By.ID, "username"),
                     (By.NAME, "email"),
@@ -298,7 +279,6 @@ class UpBot:
                     except:
                         continue
             
-            # Ищем поле пароля
             try:
                 password_field = self.driver.find_element(By.NAME, "password")
                 password_field.send_keys(self.account['password'])
@@ -318,7 +298,6 @@ class UpBot:
                     except:
                         continue
             
-            # Ищем кнопку входа
             try:
                 login_button = self.driver.find_element(
                     By.CSS_SELECTOR, 
@@ -327,21 +306,17 @@ class UpBot:
                 login_button.click()
                 logger.info("Нажата кнопка входа")
             except:
-                # Пробуем нажать Enter в поле пароля
                 password_field.submit()
                 logger.info("Отправлена форма через submit")
             
-            # Ждем успешного входа
             time.sleep(5)
             
-            # Проверяем успешность входа
             current_url = self.driver.current_url
             if "login" not in current_url.lower():
                 logger.info(f"Вход успешен! Текущий URL: {current_url}")
                 return True
             else:
                 logger.warning("Возможно не удалось войти")
-                # Делаем скриншот для отладки
                 try:
                     screenshot_path = f"/tmp/login_error_acc{self.account['index']}.png"
                     self.driver.save_screenshot(screenshot_path)
@@ -358,12 +333,7 @@ class UpBot:
     def perform_actions(self):
         """Выполнить действия после входа"""
         try:
-            # Пауза перед действиями
             time.sleep(random.randint(PAUSE_MIN, PAUSE_MAX))
-            
-            # Здесь добавляйте нужные действия
-            # Например: проверка баланса, размещение объявлений и т.д.
-            
             logger.info(f"Аккаунт {self.account['index']}: действия выполнены")
             return True
             
@@ -376,26 +346,21 @@ class UpBot:
         logger.info(f"Запуск для аккаунта {self.account['index']}: {self.account['login']}")
         
         try:
-            # Настройка драйвера
             if not self.setup_driver():
                 return False
             
-            # Попытка входа через FlareSolverr если включен
             login_success = False
             if FLARESOLVERR_ENABLED and self.flaresolverr:
                 logger.info("Пробуем вход через FlareSolverr...")
                 login_success = self.login_with_flaresolverr()
             
-            # Если FlareSolverr не сработал, пробуем ручной вход
             if not login_success:
                 logger.info("Пробуем ручной вход...")
                 login_success = self.manual_login()
             
             if login_success:
-                # Выполняем действия
                 self.perform_actions()
                 
-                # Пауза перед выходом
                 pause = random.randint(ROUND_PAUSE_MAX // 2, ROUND_PAUSE_MAX)
                 logger.info(f"Пауза {pause} секунд перед выходом...")
                 time.sleep(pause)
@@ -410,7 +375,6 @@ class UpBot:
             return False
             
         finally:
-            # Закрываем драйвер
             if self.driver:
                 try:
                     self.driver.quit()
@@ -418,7 +382,6 @@ class UpBot:
                 except:
                     pass
             
-            # Закрываем сессию FlareSolverr
             if self.flaresolverr:
                 self.flaresolverr.destroy_session()
 
@@ -426,11 +389,9 @@ def is_working_hours():
     """Проверка рабочего времени"""
     now_tbilisi = datetime.now(TBILISI_TZ).time()
     
-    # Если время конца больше времени начала (нормальный интервал)
     if WORK_END > WORK_START:
         return WORK_START <= now_tbilisi <= WORK_END
     else:
-        # Интервал пересекает полночь
         return now_tbilisi >= WORK_START or now_tbilisi <= WORK_END
 
 def main():
@@ -444,18 +405,15 @@ def main():
     logger.info(f"FlareSolverr: {'ВКЛ' if FLARESOLVERR_ENABLED else 'ВЫКЛ'}")
     logger.info("=" * 50)
     
-    # Проверка рабочего времени
     if not is_working_hours():
         logger.info("Сейчас не рабочее время. Выход.")
         return
     
-    # Проверка здоровья прокси
     if PROXY_LIST:
         working_proxies = health_check_proxies()
         if not working_proxies:
             logger.warning("Нет рабочих прокси! Будет использоваться прямое соединение.")
     
-    # Запуск для каждого аккаунта
     for account in ACCOUNTS:
         logger.info(f"\nОбработка аккаунта {account['index']}")
         
@@ -467,7 +425,6 @@ def main():
         else:
             logger.warning(f"⚠️  Аккаунт {account['index']} не обработан")
         
-        # Пауза между аккаунтами
         if account != ACCOUNTS[-1]:
             pause = random.randint(ROUND_PAUSE_MAX // 2, ROUND_PAUSE_MAX)
             logger.info(f"Пауза {pause} секунд перед следующим аккаунтом...")
