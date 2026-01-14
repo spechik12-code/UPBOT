@@ -5,12 +5,15 @@
 import requests
 import random
 import time
+import logging
 from config import PROXY_LIST, get_proxy, get_proxies_dict, PROXY_TIMEOUT
+
+logger = logging.getLogger(__name__)
 
 def test_proxy(proxy_url, test_url="https://43xgeorgia.me", timeout=10):
     """
     Протестировать прокси
-    Возвращает (успех, время_ответа, статус_код)
+    Возвращает (успех, время_ответа, статус_код, сообщение)
     """
     try:
         proxies = get_proxies_dict(proxy_url)
@@ -30,7 +33,6 @@ def test_proxy(proxy_url, test_url="https://43xgeorgia.me", timeout=10):
         response_time = time.time() - start_time
         
         if response.status_code == 200:
-            # Проверяем что это не страница блокировки
             content = response.text.lower()
             if any(block in content for block in ['ddos-guard', 'captcha', 'access denied']):
                 return False, response_time, response.status_code, "blocked"
@@ -53,33 +55,32 @@ def health_check_proxies():
     """
     working_proxies = []
     
-    print("🔍 Проверка здоровья прокси...")
+    logger.info("🔍 Проверка здоровья прокси...")
     for i, proxy in enumerate(PROXY_LIST, 1):
-        print(f"  {i}/{len(PROXY_LIST)}. Тестирую {proxy[:50]}...", end="")
+        logger.info(f"  {i}/{len(PROXY_LIST)}. Тестирую {proxy[:50]}...")
         
         success, resp_time, status, message = test_proxy(proxy, timeout=PROXY_TIMEOUT)
         
         if success:
-            print(f" ✅ {resp_time:.2f}с")
+            logger.info(f"    ✅ {resp_time:.2f}с")
             working_proxies.append({
                 'url': proxy,
                 'response_time': resp_time,
                 'status': status
             })
         else:
-            print(f" ❌ {message}")
+            logger.info(f"    ❌ {message}")
         
-        time.sleep(1)  # Пауза между тестами
+        time.sleep(1)
     
-    # Сортируем по скорости
     working_proxies.sort(key=lambda x: x['response_time'])
     
-    print(f"\n📊 Результат: {len(working_proxies)}/{len(PROXY_LIST)} прокси рабочие")
+    logger.info(f"📊 Результат: {len(working_proxies)}/{len(PROXY_LIST)} прокси рабочие")
     
     if working_proxies:
-        print("🏆 Лучшие прокси:")
+        logger.info("🏆 Лучшие прокси:")
         for i, proxy_data in enumerate(working_proxies[:3], 1):
-            print(f"  {i}. {proxy_data['url'][:60]}... - {proxy_data['response_time']:.2f}с")
+            logger.info(f"  {i}. {proxy_data['url'][:60]}... - {proxy_data['response_time']:.2f}с")
     
     return [p['url'] for p in working_proxies]
 
@@ -90,16 +91,12 @@ def get_working_proxy():
     if not PROXY_LIST:
         return None
     
-    # Сначала пробуем случайный
     proxy = get_proxy()
-    
-    # Быстрая проверка
     success, _, _, _ = test_proxy(proxy, timeout=5)
     
     if success:
         return proxy
     
-    # Если не сработал, проверяем все
     working = health_check_proxies()
     
     if working:
@@ -108,18 +105,11 @@ def get_working_proxy():
     return None
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     print("=== ТЕСТ ПРОКСИ УТИЛИТ ===")
     
     if PROXY_LIST:
         print(f"Найдено прокси в конфиге: {len(PROXY_LIST)}")
-        
-        # Тестируем первый прокси
-        if PROXY_LIST:
-            proxy = PROXY_LIST[0]
-            print(f"\nТестируем первый прокси: {proxy}")
-            
-            success, resp_time, status, message = test_proxy(proxy)
-            print(f"Результат: {'✅' if success else '❌'} {message}")
-            print(f"Время: {resp_time:.2f}с, Статус: {status}")
+        health_check_proxies()
     else:
         print("❌ Прокси не настроены в .env файле")
