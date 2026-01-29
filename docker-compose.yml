@@ -4,44 +4,11 @@ services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
-    restart: unless-stopped
     ports:
       - "8191:8191"
     environment:
       - LOG_LEVEL=info
-      - DISABLE_MEDIA=true
-      - HEADLESS=true
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
       - TZ=Asia/Tbilisi
-      - TEST_URL=https://www.google.com
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8191"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 1.5G
-          cpus: '1.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
-    volumes:
-      - flaresolverr_data:/tmp
-
-  # Опционально: мониторинг ресурсов (Portainer)
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
     restart: unless-stopped
-    ports:
-      - "9000:9000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    command: -H unix:///var/run/docker.sock
-
-volumes:
-  flaresolverr_data:
-  portainer_data:
